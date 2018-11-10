@@ -4,7 +4,7 @@
 
 Test:
 
-python main.py 0x06012c8cf97bead5deae237070f9587f8e7a266d --host https://mainnet.infura.io/508a668035334ce5afdbc4e55f918561
+python main.py 0x06012c8cf97bead5deae237070f9587f8e7a266d --host https://mainnet.infura.io/xxx
 
 """
 
@@ -97,8 +97,8 @@ def main(contract_addr, host):
 
     print("Block: {}".format(block_hash))
     print("Transaction: {}".format(transaction_hash))
-    
-    
+
+
 if __name__ == "__main__":
     """ Return Block Hash and Transaction Hash from a given contract address """
 
@@ -107,5 +107,5 @@ if __name__ == "__main__":
     parser.add_argument("--host", help="Infura Network to use", action='store',
                         type=str)
     args = parser.parse_args()
-    
+
     main(args.contract_addr, args.host)
