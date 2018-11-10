@@ -4,6 +4,7 @@ take home test
 To run:
 
 pip install web3
+
 pip install --upgrade google-cloud-bigquery
 
 Get Infura.io API key
