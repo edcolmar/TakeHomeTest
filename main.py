@@ -4,19 +4,19 @@
 
 Test:
 
-python main.py 0x06012c8cf97bead5deae237070f9587f8e7a266d --host https://mainnet.infura.io/xxx
+python main.py 0x06012c8cf97bead5deae237070f9587f8e7a266d --host https://mainnet.infura.io/XXX
 
 """
 
 import argparse
+import math
 from web3 import Web3, HTTPProvider
-from google.cloud import bigquery
 
 __author__ = "Ed Colmar"
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __license__ = "MIT"
 
-API_KEY = "xxx"
+API_KEY = "XXX"
 INFURA_NETWORK = "https://mainnet.infura.io/"
 NETWORK_URL = INFURA_NETWORK + API_KEY
 
@@ -42,45 +42,19 @@ def main(contract_addr, host):
 
     Block: 0xblock_from_which_contract_was_deployed
     Transaction: 0xtransaction_with_which_contract_was deployed
+
+    Additional instructions from Connor:
+
+    If you have time in the next couple weeks, I am wondering if you can find a way to aleter it so it runs quickly using web3.py alone without the call to bigquery.
+
+    A hint is you will want to look at the web3.eth.getCode method and its block_identifier parameter. Feel free to reach out with additional questions, I will be more responsive going forward.
+
+
     """
 
-    ## Several steps are required in order to accomplish this task.
-    ## First, I need to know the transaction that created the contract
-    ## Getting this information from the blockchain itself would require looping over transactions to
-    ## find the correct one. But, this is expensive and time consuming.
-    ##
-    ## The prompt only specifies using web3.py "to find the hashes of the
-    ## block and transaction" but does not specifically indicate how to get the
-    ## transaction itself.  So, I am using Google BigQuery to get the transaction from the contract address
-
-    client = bigquery.Client()
-    query_job = client.query("""
-        SELECT contracts.address,transactions.block_timestamp, transactions.hash, transactions.block_hash
-        FROM `bigquery-public-data.ethereum_blockchain.contracts` AS contracts
-        JOIN `bigquery-public-data.ethereum_blockchain.transactions` AS transactions ON (transactions.receipt_contract_address = contracts.address)
-        WHERE contracts.address = '%s'
-        LIMIT 1
-        """ % contract_addr)
-
-    results = query_job.result()  # Waits for job to complete.
-
-    transaction_hash = None
-    block_hash = None
-
-    for row in results:
-        # there will only be one, but this is an Iterator.
-        transaction_hash = row.hash
-        block_hash = row.block_hash
-
-    if not transaction_hash:
-        print("The contract transaction was not found")
-        return
-
-    ## At this point I already have the block and transaction hashes that I need, but in order to satisfy the prompt
-    ## I will use Infura to get this data again
-
-    #print("Block: {}".format(block_hash))
-    #print("Transaction: {}".format(transaction_hash))
+    ## Based on the new instructions, only web3.py may be used.
+    ## getCode will return a result only if the supplied block_identifier is newer than the contract
+    ## looping over the blockchain is therefore the only solution available.
 
     # Use command line host if entered
     if host:
@@ -89,15 +63,52 @@ def main(contract_addr, host):
     else:
         w3 = Web3(HTTPProvider(NETWORK_URL))
 
-    trans_rcpt = w3.eth.getTransactionReceipt(transaction_hash)
-    #print(trans_rcpt)
+    contract_addr = w3.toChecksumAddress(contract_addr)
+    latest_block = w3.eth.blockNumber
 
-    transaction_hash = trans_rcpt['transactionHash'].hex()
-    block_hash = trans_rcpt['blockHash'].hex()
 
-    print("Block: {}".format(block_hash))
-    print("Transaction: {}".format(transaction_hash))
+    contract_code = w3.eth.getCode(contract_addr, block_identifier=latest_block)
+    if not contract_code:
+        print('contract not found')
+        return
 
+    #print('found contract')
+
+    ## a valid contract has been found on the latest block
+    ## recursively split the list in half, searching again.
+
+    oldest_block_to_check = 0
+    newest_block_to_check = latest_block
+    scanning = True
+
+    while scanning:
+        midpoint = math.ceil((newest_block_to_check + oldest_block_to_check) / 2)
+        #print('scanning block: %s' %midpoint)
+
+        if newest_block_to_check == midpoint:
+            #print('found origin block')
+
+            origin_block = w3.eth.getBlock(newest_block_to_check)
+            ## check the transactions looking for our contractAddress
+            for transaction in origin_block['transactions']:
+                #print('checking transaction')
+                trans_rcpt = w3.eth.getTransactionReceipt(transaction)
+                if trans_rcpt['contractAddress'] == contract_addr:
+                    transaction_hash = trans_rcpt['transactionHash'].hex()
+                    block_hash = trans_rcpt['blockHash'].hex()
+
+                    print("Block: {}".format(block_hash))
+                    print("Transaction: {}".format(transaction_hash))
+
+                    return
+
+        contract_code_at_block = w3.eth.getCode(contract_addr, block_identifier=midpoint)
+        if contract_code_at_block:
+            #print('found contract code at block')
+            newest_block_to_check = midpoint
+        else:
+            #print('contract_code_at_block not found')
+            oldest_block_to_check = midpoint
 
 if __name__ == "__main__":
     """ Return Block Hash and Transaction Hash from a given contract address """
